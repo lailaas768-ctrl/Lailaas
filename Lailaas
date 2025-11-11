@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lailaas — Password-locked page<\/title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,\"Noto Sans\",Arial}
+    .center{display:grid;place-items:center;height:100vh;background:#0f172a;color:#e6eef8}
+    .card{background:rgba(255,255,255,0.03);padding:28px;border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,0.6);min-width:280px}
+    label{display:block;margin-bottom:8px;font-weight:600}
+    input[type=password]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    button{margin-top:12px;padding:10px 12px;border-radius:8px;border:0;background:#0ea5a1;color:#042a2a;font-weight:700;cursor:pointer}
+
+    /* fullscreen content that appears after unlocking */
+    #siteContent{display:none;height:100vh;width:100%;}
+    #mainApp{padding:28px}
+
+    /* invisible YouTube iframe (kept to autoplay) */
+    #ytplayer{position:fixed;left:-9999px;width:1px;height:1px;opacity:0}
+
+    /* fallback big tap-to-play button when autoplay is blocked */
+    #tapToPlay{display:none;position:fixed;inset:0;background:linear-gradient(180deg,rgba(2,6,23,0.7),rgba(2,6,23,0.9));z-index:9999;align-items:center;justify-content:center}
+    #tapToPlay button{font-size:20px;padding:18px 26px;border-radius:12px}
+
+    /* small helper text */
+    .hint{margin-top:10px;color:rgba(255,255,255,0.7);font-size:13px}
+  </style>
+</head>
+<body>
+  <div id="tapToPlay" style="display:none;">
+    <button id="tapPlayBtn">Tap to enable audio</button>
+  </div>
+
+  <div class="center" id="lockScreen">
+    <div class="card">
+      <div style="font-size:18px;margin-bottom:6px">Private page — enter password</div>
+      <label for="pw">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Type password..." />
+      <button id="unlockBtn">Unlock</button>
+      <div class="hint">Music will try to play automatically. If your browser blocks autoplay on mobile, tap the screen when prompted.</div>
+    </div>
+  </div>
+
+  <div id="siteContent">
+    <div id="mainApp">
+      <h1>Welcome to Lailaas — content unlocked<\/h1>
+      <p>This is your private page. Add photos or whatever here.</p>
+      <!-- Put your private content here -->
+    </div>
+  </div>
+
+  <!-- YouTube IFrame (kept hidden). Replace VIDEO_ID with the YouTube ID you want. -->
+  <div id="playerWrap" aria-hidden="true">
+    <iframe id="ytplayer" src="https://www.youtube.com/embed/6XNTtcvEr?enablejsapi=1&autoplay=1&controls=0&iv_load_policy=3&modestbranding=1&playsinline=1" frameborder="0" allow="autoplay; encrypted-media" ></iframe>
+  </div>
+
+  <script>
+    // ====== CONFIGURE HERE ======
+    const secretPassword = '112008'; // change this to your desired password (client-side only!)
+    // ============================
+
+    const unlockBtn = document.getElementById('unlockBtn');
+    const pwInput = document.getElementById('pw');
+    const lockScreen = document.getElementById('lockScreen');
+    const siteContent = document.getElementById('siteContent');
+    const tapToPlay = document.getElementById('tapToPlay');
+    const tapPlayBtn = document.getElementById('tapPlayBtn');
+
+    // Show content after correct password
+    function unlock() {
+      const val = pwInput.value;
+      if (val === secretPassword) {
+        lockScreen.style.display = 'none';
+        siteContent.style.display = 'block';
+        tryPlay();
+      } else {
+        alert('Wrong password');
+      }
+    }
+
+    unlockBtn.addEventListener('click', unlock);
+    pwInput.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') unlock(); });
+
+    // ATTEMPT TO AUTOPLAY using YouTube iframe API and a short WebAudio hack
+    let autoplayAllowed = false;
+
+    function tryPlay() {
+      // 1) Try to play via tiny WebAudio buffer (some browsers allow this on page load)
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          const ac = new AudioContext();
+          const o = ac.createOscillator();
+          const g = ac.createGain();
+          g.gain.value = 0; // silent
+          o.connect(g); g.connect(ac.destination);
+          o.start(0);
+          setTimeout(()=>{ o.stop(); ac.close(); autoplayAllowed = true; }, 100);
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // 2) Send play command to YouTube iframe via postMessage
+      const iframe = document.getElementById('ytplayer');
+      if (iframe && iframe.contentWindow) {
+        // 'playVideo' requires the IFrame Player API — we try a safe postMessage command
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+      }
+
+      // 3) If after a short delay audio hasn't started, show the tap-to-play overlay
+      setTimeout(()=>{
+        // If autoplayAllowed wasn't set by AudioContext hack, show fallback for user gesture
+        if (!autoplayAllowed) {
+          tapToPlay.style.display = 'grid';
+        }
+      }, 800);
+    }
+
+    // When user taps, try to call play again (user gesture will allow audio)
+    tapPlayBtn.addEventListener('click', ()=>{
+      tapToPlay.style.display = 'none';
+      // Send play command to iframe
+      const iframe = document.getElementById('ytplayer');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+      }
+    });
+
+    // If you want the music to start BEFORE password — call tryPlay() on load.
+    // NOTE: many mobile browsers WILL block autoplay with sound unless user interacts first.
+
+    // Try autoplay right away (when page loads) so music can start before password entry in some browsers
+    window.addEventListener('load', ()=>{
+      tryPlay();
+    });
+
+    // OPTIONAL: Remove the iframe src from DOM when not needed to save bandwidth
+    function removePlayerIfNotNeeded() {
+      // keep as-is for now
+    }
+
+    // IMPORTANT SECURITY NOTE (visible to the site owner):
+    // This is a client-side password (JS) and NOT secure — anyone can view-source to find the password.
+    // For real privacy you must use server-side authentication.
+  </script>
+</body>
+</html>
