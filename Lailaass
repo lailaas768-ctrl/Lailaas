@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Private Site — Password + Background Music</title>
+  <style>
+    :root{ --bg:#0f1724; --card:#0b1220; --accent:#ef7f6b; --text:#e6eef6; }
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:var(--text);background:linear-gradient(180deg,#061025, #09172a);-webkit-font-smoothing:antialiased;}
+    .center{display:flex;align-items:center;justify-content:center;height:100%;padding:20px;box-sizing:border-box;}
+    .content{max-width:900px;width:100%;background:rgba(255,255,255,0.02);border-radius:14px;padding:28px;box-shadow:0 10px 30px rgba(2,6,23,0.6);text-align:center;}
+    h1{margin:0 0 8px;font-size:28px}
+    p{margin:6px 0 18px;color:rgba(255,255,255,0.75)}
+    /* Password overlay */
+    .overlay{position:fixed;inset:0;background:linear-gradient(180deg, rgba(2,6,23,0.95), rgba(2,6,23,0.98));display:flex;align-items:center;justify-content:center;z-index:9999}
+    .box{background:var(--card);padding:26px;border-radius:12px;min-width:300px;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(2,6,23,0.6);}
+    .box input[type="password"]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:var(--text);outline:none;font-size:16px;box-sizing:border-box;}
+    .box button{margin-top:12px;padding:10px 14px;border-radius:8px;border:none;background:var(--accent);color:#071019;font-weight:600;cursor:pointer;font-size:15px;}
+    .hint{margin-top:10px;color:rgba(255,255,255,0.55);font-size:13px;}
+    /* Invisible audio (no player) */
+    audio[hidden]{display:none;}
+    /* Tap-to-enable fallback */
+    .tap-enable{position:fixed;left:10px;bottom:12px;background:rgba(0,0,0,0.45);backdrop-filter:blur(4px);color:#fff;padding:8px 10px;border-radius:999px;font-size:13px;z-index:9998;cursor:pointer;display:none;}
+    /* Simple content after unlock */
+    .locked-message{font-size:15px;color:rgba(255,255,255,0.9);}
+  </style>
+</head>
+<body>
+  <!-- Hidden audio element -->
+  <audio id="bg-audio" loop playsinline webkit-playsinline crossorigin="anonymous" preload="auto" hidden>
+    <!-- Replace src with your audio file URL (mp3). Make sure CORS allows playback from Glitch host. -->
+    <source src="https://cdn.freesound.org/sounds/456789/download/456789__example-music.mp3" type="audio/mpeg">
+    <!-- Fallback text -->
+    Your browser does not support the audio element.
+  </audio>
+
+  <!-- Tap to enable sound (shown only if autoplay blocked) -->
+  <div id="tapEnable" class="tap-enable" title="Enable sound">🔊 Tap to enable sound</div>
+
+  <!-- Password overlay -->
+  <div id="overlay" class="overlay">
+    <div class="box">
+      <h2>Site Protected</h2>
+      <p class="hint">Site kholne ke liye password darj karein</p>
+      <input id="pwInput" type="password" placeholder="Password dalein" autocomplete="off" />
+      <button id="pwBtn">Open</button>
+      <div id="pwError" class="hint" style="color:#ffb4b4;display:none;margin-top:10px;">Galat password — dobara koshish karein</div>
+      <div style="margin-top:12px;font-size:12px;color:rgba(255,255,255,0.5)">Background music bina player ke chal rahi hogi (agar browser allow kare)</div>
+    </div>
+  </div>
+
+  <!-- Main page content (hidden until correct password) -->
+  <div class="center">
+    <div class="content" id="mainContent" aria-hidden="true" style="display:none;">
+      <h1>Welcome</h1>
+      <p class="locked-message">Yeh private content hai — aap password daalkar dekhiye.</p>
+      <p>Apna content yahan paste karein — photos, text, links, etc.</p>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      // === CONFIG ===
+      // Set your password here (simple client-side password; not secure for sensitive data)
+      const PASSWORD = "1234"; // <-- change this to your password
+      // Set to true to remember unlocked state in localStorage (so user won't re-enter on same device)
+      const REMEMBER = true;
+      const STORAGE_KEY = "site_unlocked_v1";
+
+      const overlay = document.getElementById('overlay');
+      const pwInput = document.getElementById('pwInput');
+      const pwBtn = document.getElementById('pwBtn');
+      const pwError = document.getElementById('pwError');
+      const mainContent = document.getElementById('mainContent');
+
+      const audio = document.getElementById('bg-audio');
+      const tapEnable = document.getElementById('tapEnable');
+
+      // Attempt autoplay on load
+      function tryAutoplay(){
+        // set a comfortable volume
+        try { audio.volume = 0.35; } catch(e){}
+        const p = audio.play();
+        if (p !== undefined) {
+          p.then(()=> {
+            // autoplay succeeded
+            tapEnable.style.display = 'none';
+          }).catch(()=> {
+            // autoplay failed — show small tap prompt
+            tapEnable.style.display = 'block';
+          });
+        }
+      }
+
+      // Resume audio via user gesture (fallback)
+      function enableAudioByTap(){
+        // Some browsers require AudioContext resume first - try both
+        try {
+          if (window.AudioContext || window.webkitAudioContext) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!window._myAC) window._myAC = new AC();
+            // resume if suspended
+            if (window._myAC.state === 'suspended') window._myAC.resume && window._myAC.resume();
+          }
+        } catch(e){}
+        audio.play().then(()=> {
+          tapEnable.style.display = 'none';
+        }).catch(()=> {
+          // still blocked; keep the prompt visible
+          tapEnable.style.display = 'block';
+        });
+      }
+
+      // Password check
+      function unlock(){
+        const val = pwInput.value;
+        if (val === PASSWORD){
+          pwError.style.display = 'none';
+          // hide overlay and show content
+          overlay.style.display = 'none';
+          mainContent.style.display = 'block';
+          mainContent.setAttribute('aria-hidden','false');
+          if (REMEMBER) localStorage.setItem(STORAGE_KEY, '1');
+        } else {
+          pwError.style.display = 'block';
+          // small shake animation could be added; for now focus input
+          pwInput.focus();
+        }
+      }
+
+      // Event listeners
+      pwBtn.addEventListener('click', unlock);
+      pwInput.addEventListener('keydown', function(e){
+        if (e.key === 'Enter') unlock();
+      });
+
+      tapEnable.addEventListener('click', function(){ enableAudioByTap(); });
+
+      // If previously unlocked (and REMEMBER true), skip password
+      if (REMEMBER && localStorage.getItem(STORAGE_KEY) === '1'){
+        overlay.style.display = 'none';
+        mainContent.style.display = 'block';
+        mainContent.setAttribute('aria-hidden','false');
+      }
+
+      // Try autoplay after small delay to improve chance on some devices
+      window.addEventListener('load', function(){
+        // Try to autoplay once
+        tryAutoplay();
+        // Also try resume on first touch anywhere, but keep overlay hidden logic separate
+        function oneTouchStart(){ 
+          enableAudioByTap();
+          window.removeEventListener('touchstart', oneTouchStart, true);
+          window.removeEventListener('click', oneTouchStart, true);
+        }
+        window.addEventListener('touchstart', oneTouchStart, true);
+        window.addEventListener('click', oneTouchStart, true);
+      });
+    })();
+  </script>
+</body>
+</html>
